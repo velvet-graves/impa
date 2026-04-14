@@ -4,8 +4,8 @@ Named after Zelda's guardian, Impa watches over your writing.
 
 ## Features
 
-- **Version Increment** — Duplicate the active note with the next decimal version (e.g. `Novel 1.0.md` → `Novel 1.1.md`).
-- **Export to DOCX** — Export the active note via Pandoc using one of your four predefined Word templates (Novel, Short, Pitch, Comic).
+- **Quick Version Increment** — Quickly duplicate the active note with the next decimal version (e.g. `Novel 1.0.md` → `Novel 1.1.md`).
+- **Export to DOCX** — Export the active note via Pandoc using predefined Word templates. Supports multiple templates, which can be selected from a list at the time of export.
 
 ## Installation (Manual)
 
@@ -22,10 +22,10 @@ Named after Zelda's guardian, Impa watches over your writing.
 
 | Setting | Description |
 |---|---|
-| **Pandoc path** | Path to your pandoc binary. `pandoc` works if it's on PATH (it is on CachyOS with a standard install). |
+| **Pandoc path** | Path to your pandoc binary. `pandoc` works if it's on PATH. |
 | **Default export directory** | Absolute path to your output folder. Leave blank to save next to the source note. |
 | **Overwrite existing files** | Toggle on to overwrite; off to auto-suffix (e.g. `Novel (2).docx`). |
-| **Novel / Short / Pitch / Comic template** | Absolute path to each `.docx` reference template file. |
+| **Select templates** | Select and name `.docx` reference template files. |
 
 ## Commands & Hotkeys
 
@@ -48,4 +48,4 @@ See: https://pandoc.org/MANUAL.html#option--reference-doc
 | `Novel 1.9.md` | `Novel 1.10.md` |
 | `Story.md` (no version) | `Story 1.0.md` |
 
->PLEASE NOTE THAT THIS WAS VIBECODED BY CLAUDE. I'M NOT ANY KIND OF CODER AND HAVE NO IDEA IF IT'S DOING WEIRD THINGS. I JUST WANTED SOMETHING FOR MYSELF AND THOUGHT I MIGHT AS WELL PUT IT SOMEWHERE IN CASE SOMEONE ELSE WANTED THIS HIGHLY SPECIFIC FEATURESET. BUT SINCE PRO'LLY NOBODY DOES, I'M NOT SUPER WORRIED
+>PLEASE NOTE THIS WAS VIBECODED BY CLAUDE. I'M NOT ANY KIND OF CODER AND HAVE NO IDEA IF IT'S DOING WEIRD THINGS. I JUST WANTED SOMETHING FOR MYSELF AND THOUGHT I MIGHT AS WELL PUT IT SOMEWHERE IN CASE SOMEONE ELSE WANTED THIS HIGHLY SPECIFIC FEATURE SET. BUT SINCE PRO'LLY NOBODY DOES, I'M NOT SUPER WORRIED
