@@ -1,0 +1,10 @@
+{
+  "id": "impa",
+  "name": "Impa",
+  "version": "1.0.0",
+  "minAppVersion": "1.4.0",
+  "description": "Your writing companion. Version-increment notes and export to DOCX via Pandoc with custom templates.",
+  "author": "You",
+  "authorUrl": "",
+  "isDesktopOnly": true
+}
