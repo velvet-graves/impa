@@ -3,7 +3,7 @@
 /* ── Hero quote ────────────────────────────────────────────────────────────── */
 
 .impa-hero-quote {
-	margin: 0 0 0 0;
+	margin: 0;
 	padding: 14px 20px 14px 18px;
 	border-left: 3px solid var(--interactive-accent);
 	background: var(--background-secondary);
@@ -20,6 +20,12 @@
 
 .impa-settings-header {
 	margin-top: 1.4em !important;
+}
+
+.impa-section-header {
+	margin-top: 2em !important;
+	padding-top: 1em;
+	border-top: 1px solid var(--background-modifier-border);
 }
 
 /* ── Export picker modal ───────────────────────────────────────────────────── */
@@ -82,7 +88,7 @@
 	color: var(--text-normal);
 }
 
-/* ── Template rows in settings ─────────────────────────────────────────────── */
+/* ── Template / slot rows ──────────────────────────────────────────────────── */
 
 .impa-template-header {
 	display: grid;
@@ -138,6 +144,13 @@
 	box-shadow: 0 0 0 2px var(--interactive-accent-hover);
 }
 
+.impa-slot-label {
+	font-size: 0.9em;
+	font-weight: 500;
+	color: var(--text-normal);
+	padding-left: 4px;
+}
+
 .impa-delete-btn {
 	background: none;
 	border: none;
@@ -168,4 +181,136 @@
 	color: var(--text-muted);
 	display: block;
 	margin-top: 1px;
+}
+
+/* ── Alphasmart Neo status indicator ───────────────────────────────────────── */
+
+.impa-neo-status {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	padding: 8px 12px;
+	margin-bottom: 12px;
+	border-radius: 6px;
+	background: var(--background-secondary);
+	font-size: 0.88em;
+}
+
+.impa-neo-dot {
+	width: 10px;
+	height: 10px;
+	border-radius: 50%;
+	flex-shrink: 0;
+}
+
+.impa-neo-dot--ok {
+	background: #4caf50;
+	box-shadow: 0 0 6px #4caf5088;
+}
+
+.impa-neo-dot--err {
+	background: #f44336;
+	box-shadow: 0 0 6px #f4433688;
+}
+
+.impa-neo-status-ok {
+	color: #4caf50;
+	font-weight: 500;
+}
+
+.impa-neo-status-err {
+	color: var(--text-error);
+	font-weight: 500;
+}
+
+.impa-staging-note {
+	font-size: 0.8em;
+	color: var(--text-muted);
+	font-family: var(--font-monospace);
+	margin: 4px 0 16px 0;
+	padding: 4px 8px;
+	background: var(--background-secondary);
+	border-radius: 4px;
+	word-break: break-all;
+}
+
+/* ─── Neo Sync Styles ──────────────────────────────────────────────────────── */
+
+.impa-neo-status {
+	display: inline-block;
+	margin-left: 12px;
+	padding: 2px 10px;
+	border-radius: 10px;
+	font-size: 0.78em;
+	font-weight: 600;
+	vertical-align: middle;
+}
+
+.impa-neo-status--checking {
+	background: var(--background-modifier-border);
+	color: var(--text-muted);
+}
+
+.impa-neo-status--ok {
+	background: var(--color-green);
+	color: #fff;
+}
+
+.impa-neo-status--error {
+	background: var(--color-red);
+	color: #fff;
+}
+
+.impa-slot-label {
+	font-size: 0.9em;
+	color: var(--text-muted);
+	font-weight: 600;
+	white-space: nowrap;
+}
+
+/* ─── Shared modal table ───────────────────────────────────────────────────── */
+
+.impa-neo-table {
+	width: 100%;
+	border-collapse: collapse;
+	margin-bottom: 1.4em;
+	font-size: 0.9em;
+}
+
+.impa-neo-table th {
+	text-align: left;
+	padding: 6px 10px;
+	border-bottom: 2px solid var(--background-modifier-border);
+	color: var(--text-muted);
+	font-size: 0.8em;
+	text-transform: uppercase;
+	letter-spacing: 0.04em;
+}
+
+.impa-neo-table td {
+	padding: 7px 10px;
+	border-bottom: 1px solid var(--background-modifier-border-hover);
+	color: var(--text-normal);
+}
+
+.impa-neo-table tr:last-child td {
+	border-bottom: none;
+}
+
+/* ─── Modal button rows ────────────────────────────────────────────────────── */
+
+.impa-btn-row {
+	display: flex;
+	gap: 10px;
+	justify-content: flex-end;
+	margin-top: 0.5em;
+}
+
+.impa-confirm-btn {
+	padding: 8px 22px;
+	border-radius: 6px;
+	cursor: pointer;
+	border: none;
+	font-weight: 600;
+	font-size: 0.95em;
 }

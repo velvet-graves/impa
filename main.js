@@ -41,28 +41,38 @@ var import_obsidian = require("obsidian");
 var import_child_process = require("child_process");
 var path = __toESM(require("path"));
 var fs = __toESM(require("fs"));
+var NEO_SLOT_COUNT = 8;
+var STAGING_DIR = ".neotools-export";
+var MANIFEST_FILE = "manifest.json";
 var DEFAULT_TEMPLATES = [
   { id: "novel", label: "Novel", templatePath: "" },
   { id: "short", label: "Short", templatePath: "" },
   { id: "pitch", label: "Pitch", templatePath: "" },
   { id: "comic", label: "Comic", templatePath: "" }
 ];
+var DEFAULT_NEO_SLOTS = Array.from({ length: NEO_SLOT_COUNT }, (_, i) => ({
+  slot: i + 1,
+  vaultPath: ""
+}));
 var DEFAULT_SETTINGS = {
   templates: DEFAULT_TEMPLATES,
   exportDirectory: "",
   overwriteExisting: false,
-  pandocPath: "pandoc"
+  pandocPath: "pandoc",
+  neotoolsPath: "neotools",
+  neoSlots: DEFAULT_NEO_SLOTS
 };
 var VaultFileSuggest = class extends import_obsidian.AbstractInputSuggest {
-  constructor(app, inputEl, onSelect) {
+  constructor(app, inputEl, onSelect, filter = () => true) {
     super(app, inputEl);
     this.inputEl = inputEl;
     this.onSelect = onSelect;
+    this.filter = filter;
     this.vaultRoot = app.vault.adapter.basePath;
   }
   getSuggestions(query) {
     const q = query.toLowerCase().replace(/\\/g, "/");
-    return this.findDocxFiles(this.vaultRoot, this.vaultRoot).filter((f) => f.toLowerCase().replace(/\\/g, "/").includes(q)).slice(0, 20);
+    return this.findFiles(this.vaultRoot, this.vaultRoot).filter((f) => f.toLowerCase().replace(/\\/g, "/").includes(q)).slice(0, 20);
   }
   renderSuggestion(vaultRelPath, el) {
     var _a;
@@ -73,13 +83,12 @@ var VaultFileSuggest = class extends import_obsidian.AbstractInputSuggest {
     if (folder)
       el.createEl("small", { text: folder, cls: "impa-suggest-folder" });
   }
-  // Called by Obsidian when the user clicks or keyboards-selects a suggestion.
   selectSuggestion(vaultRelPath, _evt) {
     this.inputEl.value = vaultRelPath;
     this.onSelect(vaultRelPath);
     this.close();
   }
-  findDocxFiles(dir, root) {
+  findFiles(dir, root) {
     const results = [];
     try {
       for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
@@ -87,9 +96,11 @@ var VaultFileSuggest = class extends import_obsidian.AbstractInputSuggest {
           continue;
         const full = path.join(dir, entry.name);
         if (entry.isDirectory()) {
-          results.push(...this.findDocxFiles(full, root));
-        } else if (entry.isFile() && entry.name.toLowerCase().endsWith(".docx")) {
-          results.push(path.relative(root, full).replace(/\\/g, "/"));
+          results.push(...this.findFiles(full, root));
+        } else if (entry.isFile()) {
+          const rel = path.relative(root, full).replace(/\\/g, "/");
+          if (this.filter(rel))
+            results.push(rel);
         }
       }
     } catch (_) {
@@ -118,6 +129,107 @@ function resolveOutputPath(p) {
 function generateId() {
   return "tmpl_" + Math.random().toString(36).slice(2, 9);
 }
+function runCommand(cmd, args) {
+  return new Promise((resolve, reject) => {
+    (0, import_child_process.execFile)(cmd, args, (err, stdout, stderr) => {
+      if (err)
+        reject(new Error(stderr || err.message));
+      else
+        resolve(stdout);
+    });
+  });
+}
+function checkCommandExists(cmd) {
+  return new Promise((resolve) => {
+    (0, import_child_process.exec)(`command -v "${cmd}"`, (err) => resolve(!err));
+  });
+}
+async function assertNeotools(neotoolsPath) {
+  const exists = await checkCommandExists(neotoolsPath);
+  if (!exists) {
+    throw new Error(
+      `neotools not found at "${neotoolsPath}". Install neotools and set the correct path in Impa \u2192 Neo Sync settings.`
+    );
+  }
+}
+var NeoSendConfirmModal = class extends import_obsidian.Modal {
+  constructor(app, slots, vaultRoot, onConfirm) {
+    super(app);
+    this.slots = slots;
+    this.vaultRoot = vaultRoot;
+    this.onConfirm = onConfirm;
+  }
+  onOpen() {
+    const { contentEl } = this;
+    contentEl.empty();
+    contentEl.createEl("h2", { text: "Send to Alphasmart Neo" });
+    contentEl.createEl("p", {
+      text: "The following files will be copied to the staging area, renamed, and written to your Neo. Make sure your Neo is connected.",
+      cls: "impa-subtitle"
+    });
+    const configured = this.slots.filter((s) => s.vaultPath.trim() !== "");
+    if (configured.length === 0) {
+      contentEl.createEl("p", { text: "\u26A0\uFE0F  No files assigned to Neo slots. Configure them in Impa settings." });
+      this.addCancelBtn(contentEl);
+      return;
+    }
+    const table = contentEl.createEl("table", { cls: "impa-neo-table" });
+    const thead = table.createEl("thead");
+    const hr = thead.createEl("tr");
+    hr.createEl("th", { text: "Neo Slot" });
+    hr.createEl("th", { text: "Vault File" });
+    hr.createEl("th", { text: "Sends As" });
+    const tbody = table.createEl("tbody");
+    for (const slot of configured) {
+      const tr = tbody.createEl("tr");
+      tr.createEl("td", { text: `File ${slot.slot}` });
+      tr.createEl("td", { text: path.basename(slot.vaultPath), attr: { title: slot.vaultPath } });
+      tr.createEl("td", { text: `File ${slot.slot}.txt` });
+    }
+    const btnRow = contentEl.createDiv({ cls: "impa-btn-row" });
+    btnRow.createEl("button", { text: "Send", cls: "mod-cta impa-confirm-btn" }).addEventListener("click", () => {
+      this.close();
+      this.onConfirm();
+    });
+    this.addCancelBtn(btnRow);
+  }
+  addCancelBtn(parent) {
+    parent.createEl("button", { text: "Cancel", cls: "impa-cancel-btn" }).addEventListener("click", () => this.close());
+  }
+  onClose() {
+    this.contentEl.empty();
+  }
+};
+var NeoReceiveResultModal = class extends import_obsidian.Modal {
+  constructor(app, results) {
+    super(app);
+    this.results = results;
+  }
+  onOpen() {
+    var _a;
+    const { contentEl } = this;
+    contentEl.empty();
+    contentEl.createEl("h2", { text: "Sync from Alphasmart Neo \u2014 Results" });
+    const table = contentEl.createEl("table", { cls: "impa-neo-table" });
+    const thead = table.createEl("thead");
+    const hr = thead.createEl("tr");
+    hr.createEl("th", { text: "Slot" });
+    hr.createEl("th", { text: "Vault File" });
+    hr.createEl("th", { text: "Result" });
+    const tbody = table.createEl("tbody");
+    for (const r of this.results) {
+      const tr = tbody.createEl("tr");
+      const icon = r.status === "updated" ? "\u2705" : r.status === "skipped" ? "\u23ED\uFE0F" : "\u2753";
+      tr.createEl("td", { text: `File ${r.slot}` });
+      tr.createEl("td", { text: r.vaultPath ? path.basename(r.vaultPath) : "(not mapped)" });
+      tr.createEl("td", { text: `${icon} ${(_a = r.reason) != null ? _a : r.status}` });
+    }
+    contentEl.createDiv({ cls: "impa-cancel-row" }).createEl("button", { text: "Close", cls: "impa-cancel-btn" }).addEventListener("click", () => this.close());
+  }
+  onClose() {
+    this.contentEl.empty();
+  }
+};
 var TemplatePicker = class extends import_obsidian.Modal {
   constructor(app, templates, onChoose) {
     super(app);
@@ -161,6 +273,7 @@ var ImpaSettingTab = class extends import_obsidian.PluginSettingTab {
     super(app, plugin);
     this.plugin = plugin;
     this.suggests = [];
+    this.neotoolsStatusEl = null;
   }
   display() {
     const { containerEl } = this;
@@ -170,6 +283,7 @@ var ImpaSettingTab = class extends import_obsidian.PluginSettingTab {
     const quote = containerEl.createEl("blockquote", { cls: "impa-hero-quote" });
     quote.createEl("p").innerHTML = `"Princess, it's dangerous to go alone! Take me!" \u2014 Impa, <em>Hyrule Warriors</em>`;
     containerEl.createEl("h2", { text: "Impa Settings", cls: "impa-settings-header" });
+    containerEl.createEl("h3", { text: "Pandoc Export" });
     new import_obsidian.Setting(containerEl).setName("Pandoc path").setDesc('Full path to the pandoc binary, or just "pandoc" if it is on your PATH.').addText((t) => t.setPlaceholder("pandoc").setValue(this.plugin.settings.pandocPath).onChange(async (v) => {
       this.plugin.settings.pandocPath = v.trim() || "pandoc";
       await this.plugin.saveSettings();
@@ -182,36 +296,72 @@ var ImpaSettingTab = class extends import_obsidian.PluginSettingTab {
       this.plugin.settings.overwriteExisting = v;
       await this.plugin.saveSettings();
     }));
-    containerEl.createEl("h3", { text: "Export Templates" });
+    containerEl.createEl("h3", { text: "Docx Templates" });
     containerEl.createEl("p", {
-      text: "Give each template a name, then type to search for matching .docx files inside your vault. Selecting a suggestion fills the path automatically. Use the trash icon to remove a template.",
+      text: "Give each template a name, then type to search for matching .docx files inside your vault. Selecting a suggestion fills the path automatically.",
       cls: "setting-item-description"
     });
-    const header = containerEl.createDiv({ cls: "impa-template-header" });
-    header.createEl("span", { text: "Name" });
-    header.createEl("span", { text: "Template file (vault path)" });
-    header.createEl("span", { text: "" });
+    const tmplHeader = containerEl.createDiv({ cls: "impa-template-header" });
+    tmplHeader.createEl("span", { text: "Name" });
+    tmplHeader.createEl("span", { text: "Template file (vault path)" });
+    tmplHeader.createEl("span", { text: "" });
     for (let i = 0; i < this.plugin.settings.templates.length; i++) {
       this.renderTemplateRow(containerEl, i);
     }
     new import_obsidian.Setting(containerEl).addButton((btn) => btn.setButtonText("+ Add template").setCta().onClick(async () => {
-      this.plugin.settings.templates.push({
-        id: generateId(),
-        label: "New Template",
-        templatePath: ""
-      });
+      this.plugin.settings.templates.push({ id: generateId(), label: "New Template", templatePath: "" });
       await this.plugin.saveSettings();
       this.display();
     }));
+    containerEl.createEl("h3", { text: "Alphasmart Neo Sync" });
+    containerEl.createEl("p", {
+      text: `Files are staged in your vault's ${STAGING_DIR}/ folder during sync. A manifest inside that folder tracks which vault file maps to which Neo slot, so the return trip can restore names automatically.`,
+      cls: "setting-item-description"
+    });
+    const neoPathSetting = new import_obsidian.Setting(containerEl).setName("Neotools path").setDesc('The neotools CLI command. Leave as "neotools" if it is on your PATH, or enter the full path to the binary.').addText((t) => t.setPlaceholder("neotools").setValue(this.plugin.settings.neotoolsPath).onChange(async (v) => {
+      this.plugin.settings.neotoolsPath = v.trim() || "neotools";
+      await this.plugin.saveSettings();
+      this.checkNeotoolsStatus();
+    }));
+    this.neotoolsStatusEl = neoPathSetting.settingEl.createDiv({ cls: "impa-neo-status impa-neo-status--checking" });
+    this.neotoolsStatusEl.setText("Checking\u2026");
+    this.checkNeotoolsStatus();
+    containerEl.createEl("h4", { text: "File slot assignments" });
+    containerEl.createEl("p", {
+      text: "Assign a vault note to each of the 8 file slots on your Neo. Unassigned slots are skipped during sync.",
+      cls: "setting-item-description"
+    });
+    const slotHeader = containerEl.createDiv({ cls: "impa-template-header" });
+    slotHeader.createEl("span", { text: "Neo Slot" });
+    slotHeader.createEl("span", { text: "Vault file (.md)" });
+    slotHeader.createEl("span", { text: "" });
+    for (let i = 0; i < NEO_SLOT_COUNT; i++) {
+      this.renderNeoSlotRow(containerEl, i);
+    }
   }
+  // ── neotools status badge ────────────────────────────────────────────────
+  checkNeotoolsStatus() {
+    if (!this.neotoolsStatusEl)
+      return;
+    const el = this.neotoolsStatusEl;
+    el.className = "impa-neo-status impa-neo-status--checking";
+    el.setText("Checking\u2026");
+    checkCommandExists(this.plugin.settings.neotoolsPath).then((found) => {
+      if (found) {
+        el.className = "impa-neo-status impa-neo-status--ok";
+        el.setText("\u2713 Found");
+      } else {
+        el.className = "impa-neo-status impa-neo-status--error";
+        el.setText("\u2717 Not found");
+      }
+    });
+  }
+  // ── template row ─────────────────────────────────────────────────────────
   renderTemplateRow(containerEl, i) {
     const tmpl = this.plugin.settings.templates[i];
     const row = containerEl.createDiv({ cls: "impa-template-row" });
     const nameWrap = row.createDiv({ cls: "impa-template-cell" });
-    const nameInput = nameWrap.createEl("input", {
-      type: "text",
-      cls: "impa-name-input"
-    });
+    const nameInput = nameWrap.createEl("input", { type: "text", cls: "impa-name-input" });
     nameInput.placeholder = "Template name";
     nameInput.value = tmpl.label;
     nameInput.addEventListener("change", async () => {
@@ -219,10 +369,7 @@ var ImpaSettingTab = class extends import_obsidian.PluginSettingTab {
       await this.plugin.saveSettings();
     });
     const pathWrap = row.createDiv({ cls: "impa-template-cell impa-template-cell--wide" });
-    const pathInput = pathWrap.createEl("input", {
-      type: "text",
-      cls: "impa-path-input"
-    });
+    const pathInput = pathWrap.createEl("input", { type: "text", cls: "impa-path-input" });
     pathInput.placeholder = "Templates/my-template.docx";
     pathInput.value = tmpl.templatePath;
     pathInput.addEventListener("input", async () => {
@@ -236,19 +383,54 @@ var ImpaSettingTab = class extends import_obsidian.PluginSettingTab {
         pathInput.value = selected;
         this.plugin.settings.templates[i].templatePath = selected;
         await this.plugin.saveSettings();
-      }
+      },
+      (rel) => rel.toLowerCase().endsWith(".docx")
     );
     this.suggests.push(suggest);
     const delWrap = row.createDiv({ cls: "impa-template-cell impa-template-cell--btn" });
-    const delBtn = delWrap.createEl("button", {
-      cls: "impa-delete-btn",
-      attr: { "aria-label": "Remove template" }
-    });
+    const delBtn = delWrap.createEl("button", { cls: "impa-delete-btn", attr: { "aria-label": "Remove template" } });
     delBtn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4h6v2"/></svg>`;
     delBtn.addEventListener("click", async () => {
       this.plugin.settings.templates.splice(i, 1);
       await this.plugin.saveSettings();
       this.display();
+    });
+  }
+  // ── Neo slot row ─────────────────────────────────────────────────────────
+  renderNeoSlotRow(containerEl, i) {
+    if (!this.plugin.settings.neoSlots[i]) {
+      this.plugin.settings.neoSlots[i] = { slot: i + 1, vaultPath: "" };
+    }
+    const slot = this.plugin.settings.neoSlots[i];
+    const row = containerEl.createDiv({ cls: "impa-template-row" });
+    const labelWrap = row.createDiv({ cls: "impa-template-cell" });
+    labelWrap.createEl("span", { text: `File ${slot.slot}`, cls: "impa-slot-label" });
+    const pathWrap = row.createDiv({ cls: "impa-template-cell impa-template-cell--wide" });
+    const pathInput = pathWrap.createEl("input", { type: "text", cls: "impa-path-input" });
+    pathInput.placeholder = "Writing/my-novel 1.0.md";
+    pathInput.value = slot.vaultPath;
+    pathInput.addEventListener("input", async () => {
+      this.plugin.settings.neoSlots[i].vaultPath = pathInput.value.trim();
+      await this.plugin.saveSettings();
+    });
+    const suggest = new VaultFileSuggest(
+      this.app,
+      pathInput,
+      async (selected) => {
+        pathInput.value = selected;
+        this.plugin.settings.neoSlots[i].vaultPath = selected;
+        await this.plugin.saveSettings();
+      },
+      (rel) => rel.toLowerCase().endsWith(".md") && !rel.startsWith(STAGING_DIR)
+    );
+    this.suggests.push(suggest);
+    const clearWrap = row.createDiv({ cls: "impa-template-cell impa-template-cell--btn" });
+    const clearBtn = clearWrap.createEl("button", { cls: "impa-delete-btn", attr: { "aria-label": "Clear slot" } });
+    clearBtn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>`;
+    clearBtn.addEventListener("click", async () => {
+      pathInput.value = "";
+      this.plugin.settings.neoSlots[i].vaultPath = "";
+      await this.plugin.saveSettings();
     });
   }
 };
@@ -279,19 +461,68 @@ var ImpaPlugin = class extends import_obsidian.Plugin {
         this.promptExportDocx(file);
       }
     });
+    this.addCommand({
+      id: "impa-neo-send",
+      name: "Send to Alphasmart Neo",
+      callback: () => this.neoSend()
+    });
+    this.addCommand({
+      id: "impa-neo-receive",
+      name: "Sync from Alphasmart Neo",
+      callback: () => this.neoReceive()
+    });
     this.addSettingTab(new ImpaSettingTab(this.app, this));
   }
   onunload() {
   }
   async loadSettings() {
+    var _a;
     const saved = await this.loadData();
     this.settings = Object.assign({}, DEFAULT_SETTINGS, saved);
     if (!this.settings.templates || this.settings.templates.length === 0) {
       this.settings.templates = DEFAULT_TEMPLATES.map((t) => ({ ...t }));
     }
+    if (!this.settings.neoSlots || this.settings.neoSlots.length !== NEO_SLOT_COUNT) {
+      const existing = (_a = this.settings.neoSlots) != null ? _a : [];
+      this.settings.neoSlots = Array.from(
+        { length: NEO_SLOT_COUNT },
+        (_, i) => {
+          var _a2;
+          return (_a2 = existing[i]) != null ? _a2 : { slot: i + 1, vaultPath: "" };
+        }
+      );
+    }
   }
   async saveSettings() {
     await this.saveData(this.settings);
+  }
+  // ── Staging dir helpers ──────────────────────────────────────────────────
+  get vaultRoot() {
+    return this.app.vault.adapter.basePath;
+  }
+  get stagingPath() {
+    return path.join(this.vaultRoot, STAGING_DIR);
+  }
+  get manifestPath() {
+    return path.join(this.stagingPath, MANIFEST_FILE);
+  }
+  ensureStagingDir() {
+    if (!fs.existsSync(this.stagingPath)) {
+      fs.mkdirSync(this.stagingPath, { recursive: true });
+    }
+  }
+  readManifest() {
+    try {
+      if (fs.existsSync(this.manifestPath)) {
+        return JSON.parse(fs.readFileSync(this.manifestPath, "utf8"));
+      }
+    } catch (_) {
+    }
+    return { slots: [], lastSent: null };
+  }
+  writeManifest(manifest) {
+    this.ensureStagingDir();
+    fs.writeFileSync(this.manifestPath, JSON.stringify(manifest, null, 2), "utf8");
   }
   // ── Version increment ────────────────────────────────────────────────────
   async incrementNoteVersion(file) {
@@ -317,17 +548,15 @@ var ImpaPlugin = class extends import_obsidian.Plugin {
   }
   // ── Pandoc export ────────────────────────────────────────────────────────
   promptExportDocx(file) {
-    const configured = this.settings.templates.filter((t) => t.templatePath.trim() !== "");
-    if (configured.length === 0) {
+    if (this.settings.templates.filter((t) => t.templatePath.trim() !== "").length === 0) {
       new import_obsidian.Notice("\u26A0\uFE0F  Impa: No templates configured. Add template paths in Impa settings.");
       return;
     }
     new TemplatePicker(this.app, this.settings.templates, (tmpl) => this.runPandocExport(file, tmpl)).open();
   }
   async runPandocExport(file, template) {
-    const vaultRoot = this.app.vault.adapter.basePath;
-    const sourcePath = path.join(vaultRoot, file.path);
-    const templateAbsPath = path.join(vaultRoot, template.templatePath);
+    const sourcePath = path.join(this.vaultRoot, file.path);
+    const templateAbsPath = path.join(this.vaultRoot, template.templatePath);
     if (!fs.existsSync(templateAbsPath)) {
       new import_obsidian.Notice(`\u274C  Impa: Template file not found:
 ${template.templatePath}`);
@@ -358,5 +587,134 @@ ${stderr || error.message}`);
       }
       new import_obsidian.Notice(`\u2705  Impa: Exported "${path.basename(outputPath)}" using ${template.label} template.`);
     });
+  }
+  // ── Neo: Send to Alphasmart ──────────────────────────────────────────────
+  async neoSend() {
+    try {
+      await assertNeotools(this.settings.neotoolsPath);
+    } catch (e) {
+      new import_obsidian.Notice(`\u274C  Impa: ${e.message}`);
+      return;
+    }
+    const configured = this.settings.neoSlots.filter((s) => s.vaultPath.trim() !== "");
+    if (configured.length === 0) {
+      new import_obsidian.Notice("\u26A0\uFE0F  Impa: No files assigned to Neo slots. Configure them in Impa settings.");
+      return;
+    }
+    new NeoSendConfirmModal(this.app, this.settings.neoSlots, this.vaultRoot, async () => {
+      await this.executeSend(configured);
+    }).open();
+  }
+  async executeSend(slots) {
+    this.ensureStagingDir();
+    const manifest = { slots: [], lastSent: new Date().toISOString() };
+    const errors = [];
+    new import_obsidian.Notice(`\u23F3  Impa: Preparing files for Neo\u2026`);
+    for (const slot of slots) {
+      const sourcePath = path.join(this.vaultRoot, slot.vaultPath);
+      const stagingName = `File ${slot.slot}.txt`;
+      const stagingDest = path.join(this.stagingPath, stagingName);
+      if (!fs.existsSync(sourcePath)) {
+        errors.push(`Slot ${slot.slot}: source file not found (${slot.vaultPath})`);
+        continue;
+      }
+      try {
+        const content = fs.readFileSync(sourcePath, "utf8");
+        fs.writeFileSync(stagingDest, content, "utf8");
+        manifest.slots.push({
+          slot: slot.slot,
+          vaultPath: slot.vaultPath,
+          stagingName
+        });
+      } catch (e) {
+        errors.push(`Slot ${slot.slot}: ${e.message}`);
+      }
+    }
+    this.writeManifest(manifest);
+    if (errors.length > 0) {
+      new import_obsidian.Notice(`\u26A0\uFE0F  Impa: Staging errors:
+${errors.join("\n")}`);
+    }
+    const neoErrors = [];
+    for (const entry of manifest.slots) {
+      const stagingFile = path.join(this.stagingPath, entry.stagingName);
+      try {
+        await runCommand(this.settings.neotoolsPath, ["files", "write", stagingFile, String(entry.slot)]);
+      } catch (e) {
+        neoErrors.push(`Slot ${entry.slot}: ${e.message}`);
+      }
+    }
+    if (neoErrors.length > 0) {
+      new import_obsidian.Notice(`\u274C  Impa: neotools errors:
+${neoErrors.join("\n")}`);
+    } else {
+      new import_obsidian.Notice(`\u2705  Impa: ${manifest.slots.length} file(s) sent to Neo successfully.`);
+    }
+  }
+  // ── Neo: Receive from Alphasmart ─────────────────────────────────────────
+  async neoReceive() {
+    try {
+      await assertNeotools(this.settings.neotoolsPath);
+    } catch (e) {
+      new import_obsidian.Notice(`\u274C  Impa: ${e.message}`);
+      return;
+    }
+    const manifest = this.readManifest();
+    if (manifest.slots.length === 0) {
+      new import_obsidian.Notice('\u26A0\uFE0F  Impa: No sync manifest found. Run "Send to Alphasmart Neo" first to establish the slot mapping.');
+      return;
+    }
+    this.ensureStagingDir();
+    new import_obsidian.Notice(`\u23F3  Impa: Reading files from Neo\u2026`);
+    const results = [];
+    try {
+      await runCommand(this.settings.neotoolsPath, ["files", "read-all", "--path", this.stagingPath]);
+    } catch (e) {
+      new import_obsidian.Notice(`\u274C  Impa: neotools read-all failed:
+${e.message}`);
+      return;
+    }
+    for (const entry of manifest.slots) {
+      const stagingFile = path.join(this.stagingPath, entry.stagingName);
+      const vaultAbsPath = path.join(this.vaultRoot, entry.vaultPath);
+      const result = {
+        slot: entry.slot,
+        vaultPath: entry.vaultPath,
+        status: "missing"
+      };
+      if (!fs.existsSync(stagingFile)) {
+        result.status = "missing";
+        result.reason = "File not present on Neo";
+        results.push(result);
+        continue;
+      }
+      if (fs.existsSync(vaultAbsPath)) {
+        const vaultMtime = fs.statSync(vaultAbsPath).mtimeMs;
+        const stagingMtime = fs.statSync(stagingFile).mtimeMs;
+        if (vaultMtime > stagingMtime) {
+          result.status = "skipped";
+          result.reason = "Vault file is newer \u2014 not overwritten";
+          results.push(result);
+          continue;
+        }
+      }
+      try {
+        const content = fs.readFileSync(stagingFile, "utf8");
+        const vaultParent = path.dirname(vaultAbsPath);
+        if (!fs.existsSync(vaultParent))
+          fs.mkdirSync(vaultParent, { recursive: true });
+        fs.writeFileSync(vaultAbsPath, content, "utf8");
+        const obsFile = this.app.vault.getAbstractFileByPath(entry.vaultPath);
+        if (obsFile instanceof import_obsidian.TFile)
+          await this.app.vault.read(obsFile);
+        result.status = "updated";
+        result.reason = "Updated from Neo";
+      } catch (e) {
+        result.status = "missing";
+        result.reason = `Write error: ${e.message}`;
+      }
+      results.push(result);
+    }
+    new NeoReceiveResultModal(this.app, results).open();
   }
 };
